@@ -16,14 +16,33 @@
  *  factor-> (exp)
  *         | num ｛print num.value｝
  *
- *  num-> digittemp
+ *  本文法中的终结符 +-/*() num
  *
- *  temp->digittemp|空
- *
- *  digit->0|1|2|3|4|5|6|7|8|9
  */
 (function () {
-    console.log(calculate(getSuffix("(20-5)*3")));
+    console.assert(calculate(getSuffix("3+3")) === 6);
+    console.assert(calculate(getSuffix("3-3")) === 0);
+    console.assert(calculate(getSuffix("3*3")) === 9);
+    console.assert(calculate(getSuffix("3/3")) === 1);
+    console.assert(calculate(getSuffix("(3+3)")) === 6);
+    console.assert(calculate(getSuffix("((3+3))")) === 6);
+    console.assert(calculate(getSuffix("(3+3)*3")) === 18);
+    console.assert(calculate(getSuffix("(3+3)*3-(5-2)")) === 15);
+    try {
+        calculate(getSuffix("(3+3)*3-(5-2)]"));
+    } catch (error) {
+        console.log(error);
+    }
+    try {
+        calculate(getSuffix("(3+3)*33 33-(5-2)"));
+    } catch (error) {
+        console.log(error);
+    }
+    try {
+        calculate(getSuffix("(3+3*33-(5-2)"));
+    } catch (error) {
+        console.log(error);
+    }
 }());
 /**
  *
@@ -43,105 +62,167 @@ function calculate(suffixExpression) {
     return stack[0];
 }
 function getSuffix(expression) {
-    var index = 0;
+    var TOKEN_TAG = {
+        OPERATER: 1,
+        NUM: 2,
+        BRACKET: 3
+    };
+    var tokenError = error("token");
+    var syntaxError = error("syntax");
+    var forward = 0;
     var result = [];
-    expression = expression.replace(/\s+/g, "");
     exp();
-    if (index !== expression.length - 1) {
-        throw "error";
+    if (forward !== expression.length - 1) {
+        throw syntaxError();
     }
     return result;
 
 
-    function getNextChar() {
-        return expression.charAt(index);
+    function error(namespace) {
+        return function () {
+            return namespace + "-error:" + ";expression:" + expression.substring(0, forward) + "__" + expression.substring(forward);
+        }
+    }
+
+    /**
+     * 获取forward指针指向的字符
+     * @returns {string}
+     */
+    function getChar() {
+        return expression.charAt(forward);
+    }
+
+    /**
+     * 判断一个字符是不是数位，即0-9
+     * @param char
+     */
+    function isDigit(char) {
+        return "0" <= char && char <= "9";
+    }
+
+    /**
+     * 从forward指针指向的字符开始，得到下一个token，函数返回后，forward指向获取到的token结尾处
+     * @returns {boolean|Token}如果输入流已到结尾，返回false,否则返回token {{tag:"",value:""}}
+     */
+    function getNextToken() {
+        var char;
+        while (/\s/.test(char = getChar())) {
+            forward++;
+        }
+        if (isDigit(char)) {
+            var lexemeBegin = forward;
+            do {
+                forward++;
+            }
+            while (isDigit(char = getChar()));
+            forward--;
+            return {
+                tag: TOKEN_TAG.NUM,
+                value: expression.substring(lexemeBegin, forward + 1)
+            };
+        }
+        else {
+            switch (char) {
+                case "+":
+                case "-":
+                case "*":
+                case "/":
+                    return {
+                        tag: TOKEN_TAG.OPERATER,
+                        value: char
+                    };
+                    break;
+                case "(":
+                case ")":
+                    return {
+                        tag: TOKEN_TAG.BRACKET,
+                        value: char
+                    };
+                    break;
+                case "":
+                    forward--;
+                    return false;
+                default:
+                    throw tokenError();
+                    break;
+            }
+        }
     }
 
     /**
      * 每个非终结符对应的函数的功能描述：
-     * index代表当前输入流中的指针，
-     * 每个函数从index指向的字符开始，完成对应的非终结符的匹配，匹配完成后，index的值为匹配的字符串最后一位的索引。
+     * forward代表当前输入流中的指针，
+     * 每个函数从forward指向的字符开始，完成对应的非终结符的匹配，匹配完成后，forward的值为匹配的字符串最后一位的索引。
      * 如果函数没有抛出异常，即完成匹配。否则没有完成匹配。
      */
 
     function exp() {
         term();
-        index++;
-        var char = getNextChar();
-        switch (char) {
-            case "+":
-                index++;
-                exp();
-                result.push("+");
-                break;
-            case "-":
-                index++;
-                exp();
-                result.push("-");
-                break;
-            default:
-                index--;
-                break;
-//            default:
-//                throw "表达式错误"
+        forward++;
+        var token = getNextToken();
+        if (!token) {
+            return;
+        }
+        if (token.tag === TOKEN_TAG.OPERATER) {
+            switch (token.value) {
+                case "+":
+                case "-":
+                    forward++;
+                    exp();
+                    result.push(token.value);
+                    break;
+                default:
+                    forward -= token.value.length;
+                    break;
+            }
+        } else {
+            forward -= token.value.length;
         }
     }
 
     function term() {
         factor();
-        index++;
-        switch (getNextChar()) {
-            case "*":
-                index++;
-                term();
-                result.push("*");
-                break;
-            case "/":
-                index++;
-                term();
-                result.push("/");
-                break;
-            default:
-                index--;
-                break;
-
+        forward++;
+        var token = getNextToken();
+        if (!token) {
+            return;
         }
+        if (token.tag === TOKEN_TAG.OPERATER) {
+            switch (token.value) {
+                case "*":
+                case "/":
+                    forward++;
+                    term();
+                    result.push(token.value);
+                    break;
+                default:
+                    forward -= token.value.length;
+                    break;
+            }
+        } else {
+            forward -= token.value.length;
+        }
+
     }
 
     function factor() {
-        var char = getNextChar();
-        if (char === "(") {
-            index++;
+        var token = getNextToken();
+        if (!token) {
+            throw syntaxError();
+        }
+        if (token.value === "(") {
+            forward++;
             exp();
-            index++;
-            if (getNextChar() !== ")") {
-                throw "error";
+            forward++;
+            if (getNextToken().value !== ")") {
+                throw syntaxError();
             }
+        } else if (token.tag === TOKEN_TAG.NUM) {
+            result.push(token.value);
         } else {
-            num();
-        }
-
-    }
-
-    function num() {
-        var char = getNextChar();
-        var start = index;
-        if ("0" <= char && char <= "9") {
-            index++;
-            temp();
-            result.push(expression.substring(start, index + 1));
-        } else {
-            throw "error";
+            throw syntaxError();
         }
     }
 
-    function temp() {
-        var char = getNextChar();
-        if ("0" <= char && char <= "9") {
-            index++;
-            temp();
-        } else {
-            index--;
-        }
-    }
+
 }
